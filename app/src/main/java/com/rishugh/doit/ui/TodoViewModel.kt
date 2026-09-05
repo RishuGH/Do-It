@@ -5,28 +5,49 @@ import androidx.lifecycle.ViewModel
 import com.rishugh.doit.data.Task
 import com.rishugh.doit.data.TodoRepository
 import com.rishugh.doit.notification.TodoNotificationHelper
+import com.rishugh.doit.service.TodoForegroundService
 import kotlinx.coroutines.flow.StateFlow
 
 class TodoViewModel : ViewModel() {
     val tasks: StateFlow<List<Task>> = TodoRepository.tasks
+    val isPersistent: StateFlow<Boolean> = TodoRepository.isPersistent
 
-    fun addTask(title: String) {
+    fun addTask(title: String, context: Context) {
         TodoRepository.addTask(title)
+        showNotification(context)
     }
 
-    fun toggleTask(id: Int) {
+    fun toggleTask(id: Int, context: Context) {
         TodoRepository.toggleTask(id)
+        showNotification(context)
     }
 
-    fun deleteTask(id: Int) {
+    fun deleteTask(id: Int, context: Context) {
         TodoRepository.deleteTask(id)
+        showNotification(context)
+    }
+
+    fun reorderTasks(fromIndex: Int, toIndex: Int, context: Context) {
+        TodoRepository.reorderTasks(fromIndex, toIndex)
+        showNotification(context)
+    }
+
+    fun setPersistent(persistent: Boolean, context: Context) {
+        TodoRepository.setPersistent(persistent)
+        showNotification(context)
     }
 
     fun showNotification(context: Context) {
-        TodoNotificationHelper.showTodoNotification(context, tasks.value)
+        if (isPersistent.value) {
+            TodoForegroundService.start(context)
+        } else {
+            TodoForegroundService.stop(context)
+            TodoNotificationHelper.showTodoNotification(context, tasks.value, false)
+        }
     }
 
     fun hideNotification(context: Context) {
+        TodoForegroundService.stop(context)
         TodoNotificationHelper.cancelNotification(context)
     }
 }

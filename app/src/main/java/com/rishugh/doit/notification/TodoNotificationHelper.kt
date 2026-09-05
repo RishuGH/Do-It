@@ -1,11 +1,13 @@
 package com.rishugh.doit.notification
 
 import android.R
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -23,15 +25,16 @@ object TodoNotificationHelper {
 
     const val ACTION_COMPLETE = "com.rishugh.doit.ACTION_COMPLETE"
     const val ACTION_DELETE = "com.rishugh.doit.ACTION_DELETE"
-    const val ACTION_ADD_BELOW = "com.rishugh.doit.ACTION_ADD_BELOW"
+    const val ACTION_ADD_TOP = "com.rishugh.doit.ACTION_ADD_TOP"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "To-Do List Tasks"
             val descriptionText = "Individual notifications for each to-do task"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
+                setShowBadge(true)
             }
             val notificationManager: NotificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -39,101 +42,110 @@ object TodoNotificationHelper {
         }
     }
 
-    fun showTodoNotification(context: Context, tasks: List<Task>) {
+    fun buildTaskNotification(context: Context, task: Task): Notification {
+        createNotificationChannel(context)
+        val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
+
+        val contentIntent = Intent(context, MainActivity::class.java).apply {
+            putExtra(EXTRA_TASK_ID, task.id)
+            data = Uri.parse("todo://main/${task.id}")
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context, notificationId, contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_menu_agenda)
+            .setContentTitle(task.title)
+            .setContentText("Tap actions below to complete, delete, or add task")
+            .setContentIntent(contentPendingIntent)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+
+        // Action 1: Done (Compact Emoji)
+        val completeIntent = Intent(context, TodoActionReceiver::class.java).apply {
+            action = ACTION_COMPLETE
+            putExtra(EXTRA_TASK_ID, task.id)
+            data = Uri.parse("todo://action/complete/${task.id}")
+        }
+        val completePendingIntent = PendingIntent.getBroadcast(
+            context, notificationId * 10 + 1, completeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            R.drawable.ic_menu_save,
+            "✅ Done",
+            completePendingIntent
+        )
+
+        // Action 2: Delete (Compact Emoji)
+        val deleteIntent = Intent(context, TodoActionReceiver::class.java).apply {
+            action = ACTION_DELETE
+            putExtra(EXTRA_TASK_ID, task.id)
+            data = Uri.parse("todo://action/delete/${task.id}")
+        }
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context, notificationId * 10 + 2, deleteIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            R.drawable.ic_menu_delete,
+            "🗑 Del",
+            deletePendingIntent
+        )
+
+        // Action 3: Add Task at Top via RemoteInput (Compact Emoji)
+        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
+            .setLabel("New task at top...")
+            .build()
+
+        val addIntent = Intent(context, TodoActionReceiver::class.java).apply {
+            action = ACTION_ADD_TOP
+            putExtra(EXTRA_TASK_ID, task.id)
+            data = Uri.parse("todo://action/addtop/${task.id}")
+        }
+        val addPendingIntent = PendingIntent.getBroadcast(
+            context, notificationId * 10 + 3, addIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+
+        val addAction = NotificationCompat.Action.Builder(
+            R.drawable.ic_input_add,
+            "➕ Add",
+            addPendingIntent
+        )
+            .addRemoteInput(remoteInput)
+            .setAllowGeneratedReplies(true)
+            .build()
+
+        builder.addAction(addAction)
+
+        return builder.build()
+    }
+
+    fun showTodoNotification(context: Context, tasks: List<Task>, isPersistent: Boolean) {
         createNotificationChannel(context)
         val notificationManager = NotificationManagerCompat.from(context)
 
         val activeTasks = tasks.filter { !it.isCompleted }
         val completedTasks = tasks.filter { it.isCompleted }
 
-        // 1. Cancel notifications for completed or removed tasks
         for (task in completedTasks) {
             try {
                 notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + task.id)
             } catch (e: Exception) {
-                // ignore
             }
         }
 
-        // 2. Post a separate notification card for each active task
         for (task in activeTasks) {
             val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
-
-            // Tapping notification body opens the app to this task
-            val contentIntent = Intent(context, MainActivity::class.java).apply {
-                putExtra(EXTRA_TASK_ID, task.id)
-            }
-            val contentPendingIntent = PendingIntent.getActivity(
-                context, notificationId, contentIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_menu_agenda)
-                .setContentTitle(task.title)
-                .setContentText("Tap actions below to complete, delete, or add task below")
-                .setContentIntent(contentPendingIntent)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setAutoCancel(false)
-
-            // Action 1: Done
-            val completeIntent = Intent(context, TodoActionReceiver::class.java).apply {
-                action = ACTION_COMPLETE
-                putExtra(EXTRA_TASK_ID, task.id)
-            }
-            val completePendingIntent = PendingIntent.getBroadcast(
-                context, notificationId * 10 + 1, completeIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.addAction(
-                R.drawable.ic_menu_save,
-                "✓ Done",
-                completePendingIntent
-            )
-
-            // Action 2: Delete
-            val deleteIntent = Intent(context, TodoActionReceiver::class.java).apply {
-                action = ACTION_DELETE
-                putExtra(EXTRA_TASK_ID, task.id)
-            }
-            val deletePendingIntent = PendingIntent.getBroadcast(
-                context, notificationId * 10 + 2, deleteIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.addAction(
-                R.drawable.ic_menu_delete,
-                "🗑 Delete",
-                deletePendingIntent
-            )
-
-            // Action 3: Add Task Below via RemoteInput
-            val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
-                .setLabel("Add task below...")
-                .build()
-
-            val addIntent = Intent(context, TodoActionReceiver::class.java).apply {
-                action = ACTION_ADD_BELOW
-                putExtra(EXTRA_TASK_ID, task.id)
-            }
-            val addPendingIntent = PendingIntent.getBroadcast(
-                context, notificationId * 10 + 3, addIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            )
-
-            val addAction = NotificationCompat.Action.Builder(
-                R.drawable.ic_input_add,
-                "+ Add",
-                addPendingIntent
-            )
-                .addRemoteInput(remoteInput)
-                .setAllowGeneratedReplies(true)
-                .build()
-
-            builder.addAction(addAction)
-
+            val notification = buildTaskNotification(context, task)
             try {
-                notificationManager.notify(notificationId, builder.build())
+                notificationManager.notify(notificationId, notification)
             } catch (e: SecurityException) {
                 e.printStackTrace()
             }

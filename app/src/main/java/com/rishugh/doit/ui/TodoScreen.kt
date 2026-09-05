@@ -6,29 +6,32 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
     val context = LocalContext.current
     val tasks by viewModel.tasks.collectAsState()
+    val isPersistent by viewModel.isPersistent.collectAsState()
     var newTaskTitle by remember { mutableStateOf("") }
+
+    val displayTasks = remember(tasks) { tasks.reversed() }
 
     var hasNotificationPermission by remember {
         mutableStateOf(
@@ -57,6 +60,12 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("To-Do List in Notification") },
                 actions = {
+                    IconButton(onClick = {
+                        viewModel.showNotification(context)
+                        Toast.makeText(context, "Notifications refreshed!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Notifications")
+                    }
                     IconButton(onClick = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -91,9 +100,8 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(onClick = {
                     if (newTaskTitle.isNotBlank()) {
-                        viewModel.addTask(newTaskTitle)
+                        viewModel.addTask(newTaskTitle, context)
                         newTaskTitle = ""
-                        viewModel.showNotification(context)
                     }
                 }) {
                     Icon(Icons.Default.Add, contentDescription = "Add")
@@ -110,9 +118,33 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "💡 Pin your To-Do list to your notification shade! You can check off tasks or add new ones directly via notification actions.",
+                        text = "💡 Pin tasks to the notification shade. Use '➕ Add' on any notification to add tasks at the top. Hold and drag any task card to pop it out and reorder.",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Keep non-removable (swipe lock)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Switch(
+                            checked = isPersistent,
+                            onCheckedChange = { checked ->
+                                viewModel.setPersistent(checked, context)
+                                Toast.makeText(
+                                    context,
+                                    if (checked) "Notifications are now non-removable (swipe lock enabled)" else "Notifications can now be swiped away",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -122,10 +154,10 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             } else {
                                 viewModel.showNotification(context)
-                                Toast.makeText(context, "Pinned notification updated", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Notification refreshed", Toast.LENGTH_SHORT).show()
                             }
                         }) {
-                            Text("Show / Refresh Notification")
+                            Text("Refresh Notification")
                         }
                         OutlinedButton(onClick = {
                             viewModel.hideNotification(context)
@@ -156,55 +188,75 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                     Text("No tasks yet. Add one above!")
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(tasks, key = { it.id }) { task ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.toggleTask(task.id)
-                                    viewModel.showNotification(context)
-                                }
+                AndroidView(
+                    factory = { ctx ->
+                        val recyclerView = RecyclerView(ctx).apply {
+                            layoutManager = LinearLayoutManager(ctx)
+                        }
+                        val adapter = TaskAdapter(
+                            onToggleTask = { task -> viewModel.toggleTask(task.id, ctx) },
+                            onDeleteTask = { task -> viewModel.deleteTask(task.id, ctx) },
+                            onReorderTasks = { fromIndex, toIndex ->
+                                val actualFrom = tasks.size - 1 - fromIndex
+                                val actualTo = tasks.size - 1 - toIndex
+                                viewModel.reorderTasks(actualFrom, actualTo, ctx)
+                            }
+                        )
+                        recyclerView.adapter = adapter
+
+                        val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+                            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            override fun onMove(
+                                rv: RecyclerView,
+                                viewHolder: RecyclerView.ViewHolder,
+                                target: RecyclerView.ViewHolder
+                            ): Boolean {
+                                val fromPos = viewHolder.bindingAdapterPosition
+                                val toPos = target.bindingAdapterPosition
+                                if (fromPos != RecyclerView.NO_POSITION && toPos != RecyclerView.NO_POSITION) {
+                                    adapter.onItemMove(fromPos, toPos)
+                                }
+                                return true
+                            }
+
+                            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+                            override fun onSelectedChanged(
+                                viewHolder: RecyclerView.ViewHolder?,
+                                actionState: Int
                             ) {
-                                Checkbox(
-                                    checked = task.isCompleted,
-                                    onCheckedChange = {
-                                        viewModel.toggleTask(task.id)
-                                        viewModel.showNotification(context)
+                                super.onSelectedChanged(viewHolder, actionState)
+                                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                                    viewHolder?.itemView?.apply {
+                                        animate().scaleX(1.05f).scaleY(1.05f).alpha(0.85f).setDuration(150).start()
+                                        elevation = 16f
                                     }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = task.title,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(onClick = {
-                                    viewModel.deleteTask(task.id)
-                                    viewModel.showNotification(context)
-                                }) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
                                 }
                             }
-                        }
-                    }
-                }
+
+                            override fun clearView(
+                                rv: RecyclerView,
+                                viewHolder: RecyclerView.ViewHolder
+                            ) {
+                                super.clearView(rv, viewHolder)
+                                viewHolder.itemView.apply {
+                                    animate().scaleX(1.0f).scaleY(1.0f).alpha(1.0f).setDuration(150).start()
+                                    elevation = 4f
+                                }
+                            }
+                        })
+
+                        itemTouchHelper.attachToRecyclerView(recyclerView)
+                        recyclerView
+                    },
+                    update = { recyclerView ->
+                        (recyclerView.adapter as? TaskAdapter)?.submitList(displayTasks)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
             }
         }
     }
