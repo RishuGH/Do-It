@@ -27,6 +27,11 @@ class TodoViewModel : ViewModel() {
         showNotification(context)
     }
 
+    fun editTask(id: Int, newTitle: String, context: Context) {
+        TodoRepository.editTask(id, newTitle)
+        showNotification(context)
+    }
+
     fun updateTasks(newTasks: List<Task>, context: Context) {
         TodoRepository.updateTasks(newTasks)
         showNotification(context)

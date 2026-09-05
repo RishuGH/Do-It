@@ -18,6 +18,7 @@ import com.rishugh.doit.data.Task
 class TaskAdapter(
     private val onToggleTask: (Task) -> Unit,
     private val onDeleteTask: (Task) -> Unit,
+    private val onEditTask: (Task) -> Unit,
     private val onReorderFinished: (List<Task>) -> Unit
 ) : RecyclerView.Adapter<TaskAdapter.TaskViewHolder>() {
 
@@ -75,6 +76,11 @@ class TaskAdapter(
             }
         }
 
+        val editBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_menu_edit)
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+
         val deleteBtn = ImageButton(context).apply {
             setImageResource(R.drawable.ic_menu_delete)
             setBackgroundColor(Color.TRANSPARENT)
@@ -83,10 +89,11 @@ class TaskAdapter(
         layout.addView(dragHandle)
         layout.addView(checkBox)
         layout.addView(titleView)
+        layout.addView(editBtn)
         layout.addView(deleteBtn)
         cardView.addView(layout)
 
-        return TaskViewHolder(cardView, checkBox, titleView, deleteBtn)
+        return TaskViewHolder(cardView, checkBox, titleView, editBtn, deleteBtn)
     }
 
     override fun onBindViewHolder(holder: TaskViewHolder, position: Int) {
@@ -105,6 +112,14 @@ class TaskAdapter(
         holder.checkBox.isChecked = task.isCompleted
         holder.checkBox.setOnClickListener {
             onToggleTask(task)
+        }
+
+        holder.titleView.setOnClickListener {
+            onEditTask(task)
+        }
+
+        holder.editBtn.setOnClickListener {
+            onEditTask(task)
         }
 
         holder.deleteBtn.setOnClickListener {
@@ -136,6 +151,7 @@ class TaskAdapter(
         val cardView: View,
         val checkBox: CheckBox,
         val titleView: TextView,
+        val editBtn: ImageButton,
         val deleteBtn: ImageButton
     ) : RecyclerView.ViewHolder(cardView)
 

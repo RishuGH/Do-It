@@ -42,7 +42,11 @@ object TodoNotificationHelper {
         }
     }
 
-    fun buildTaskNotification(context: Context, task: Task): Notification {
+    fun buildTaskNotification(
+        context: Context,
+        task: Task,
+        whenTimestamp: Long = System.currentTimeMillis()
+    ): Notification {
         createNotificationChannel(context)
         val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
 
@@ -65,6 +69,8 @@ object TodoNotificationHelper {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
+            .setWhen(whenTimestamp)
+            .setShowWhen(false)
 
         // Action 1: Done (Compact Emoji)
         val completeIntent = Intent(context, TodoActionReceiver::class.java).apply {
@@ -127,37 +133,91 @@ object TodoNotificationHelper {
         return builder.build()
     }
 
+    fun buildAllCompletedNotification(context: Context): Notification {
+        createNotificationChannel(context)
+
+        val contentIntent = Intent(context, MainActivity::class.java).apply {
+            data = Uri.parse("todo://main/empty")
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context, 3001, contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_menu_agenda)
+            .setContentTitle("To-Do List")
+            .setContentText("All tasks completed! Add a new task below or in the app.")
+            .setContentIntent(contentPendingIntent)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+
+        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
+            .setLabel("New task...")
+            .build()
+
+        val addIntent = Intent(context, TodoActionReceiver::class.java).apply {
+            action = ACTION_ADD_TOP
+            putExtra(EXTRA_TASK_ID, -1)
+            data = Uri.parse("todo://action/addtop/empty")
+        }
+        val addPendingIntent = PendingIntent.getBroadcast(
+            context, 3001 * 10 + 3, addIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+
+        val addAction = NotificationCompat.Action.Builder(
+            R.drawable.ic_input_add,
+            "➕ Add",
+            addPendingIntent
+        )
+            .addRemoteInput(remoteInput)
+            .setAllowGeneratedReplies(true)
+            .build()
+
+        builder.addAction(addAction)
+
+        return builder.build()
+    }
+
     fun showTodoNotification(context: Context, tasks: List<Task>, isPersistent: Boolean) {
         createNotificationChannel(context)
         val notificationManager = NotificationManagerCompat.from(context)
+        notificationManager.cancelAll()
 
-        for (task in tasks) {
+        val activeTasks = tasks.reversed().filter { !it.isCompleted }
+        val baseTime = System.currentTimeMillis()
+
+        if (activeTasks.isEmpty()) {
+            val notification = buildAllCompletedNotification(context)
             try {
-                notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + task.id)
-            } catch (e: Exception) {
-            }
-        }
-
-        val activeTasks = tasks.filter { !it.isCompleted }
-
-        for (task in activeTasks) {
-            val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
-            val notification = buildTaskNotification(context, task)
-            try {
-                notificationManager.notify(notificationId, notification)
+                notificationManager.notify(3001, notification)
             } catch (e: SecurityException) {
                 e.printStackTrace()
+            }
+        } else {
+            for (i in activeTasks.indices.reversed()) {
+                val task = activeTasks[i]
+                val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
+                val notification = buildTaskNotification(
+                    context,
+                    task,
+                    whenTimestamp = baseTime - i * 1000L
+                )
+                try {
+                    notificationManager.notify(notificationId, notification)
+                } catch (e: SecurityException) {
+                    e.printStackTrace()
+                }
             }
         }
     }
 
     fun cancelNotification(context: Context) {
         val notificationManager = NotificationManagerCompat.from(context)
-        for (i in 0..100) {
-            try {
-                notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + i)
-            } catch (e: Exception) {
-            }
-        }
+        notificationManager.cancelAll()
     }
 }

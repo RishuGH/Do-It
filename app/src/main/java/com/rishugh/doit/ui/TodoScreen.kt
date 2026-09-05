@@ -22,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.rishugh.doit.data.Task
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +31,41 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
     val tasks by viewModel.tasks.collectAsState()
     val isPersistent by viewModel.isPersistent.collectAsState()
     var newTaskTitle by remember { mutableStateOf("") }
+    var taskToEdit by remember { mutableStateOf<Task?>(null) }
+
+    taskToEdit?.let { task ->
+        var editedTitle by remember(task) { mutableStateOf(task.title) }
+        AlertDialog(
+            onDismissRequest = { taskToEdit = null },
+            title = { Text("Edit Task") },
+            text = {
+                OutlinedTextField(
+                    value = editedTitle,
+                    onValueChange = { editedTitle = it },
+                    singleLine = true,
+                    label = { Text("Task Title") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editedTitle.isNotBlank()) {
+                            viewModel.editTask(task.id, editedTitle, context)
+                            taskToEdit = null
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { taskToEdit = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     val displayTasks = remember(tasks) { tasks.reversed() }
 
@@ -196,6 +232,7 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                         val adapter = TaskAdapter(
                             onToggleTask = { task -> viewModel.toggleTask(task.id, ctx) },
                             onDeleteTask = { task -> viewModel.deleteTask(task.id, ctx) },
+                            onEditTask = { task -> taskToEdit = task },
                             onReorderFinished = { reorderedDisplayTasks ->
                                 val newTasks = reorderedDisplayTasks.reversed()
                                 viewModel.updateTasks(newTasks, ctx)

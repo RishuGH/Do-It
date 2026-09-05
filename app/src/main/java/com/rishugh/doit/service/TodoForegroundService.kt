@@ -74,52 +74,50 @@ class TodoForegroundService : Service() {
     }
 
     private fun updateForegroundAndNotifications(tasks: List<Task>) {
-        val activeTasks = tasks.filter { !it.isCompleted }
+        val activeTasks = tasks.reversed().filter { !it.isCompleted }
         val notificationManager = NotificationManagerCompat.from(this)
 
-        // Cancel existing task notifications so Android Notification Shade re-orders them cleanly
-        for (task in tasks) {
-            try {
-                notificationManager.cancel(TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + task.id)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        notificationManager.cancelAll()
 
         if (activeTasks.isEmpty()) {
-            val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_menu_agenda)
-                .setContentTitle("To-Do List")
-                .setContentText("All tasks completed! Add a new task below or in the app.")
-                .setOngoing(true)
-                .setAutoCancel(false)
+            val notification = TodoNotificationHelper.buildAllCompletedNotification(this)
             try {
-                startForeground(NOTIFICATION_ID, builder.build())
+                startForeground(NOTIFICATION_ID, notification)
             } catch (e: SecurityException) {
                 e.printStackTrace()
             }
         } else {
-            // Use the first active task as the foreground service notification
-            val firstTask = activeTasks[0]
-            val firstNotificationId = TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + firstTask.id
-            val firstNotification = TodoNotificationHelper.buildTaskNotification(this, firstTask)
+            val baseTime = System.currentTimeMillis()
 
-            try {
-                startForeground(firstNotificationId, firstNotification)
-            } catch (e: SecurityException) {
-                e.printStackTrace()
-            }
-
-            // Post remaining active tasks normally
-            for (i in 1 until activeTasks.size) {
+            // Post non-foreground tasks in reverse order (N-1 down to 1) first
+            for (i in (1 until activeTasks.size).reversed()) {
                 val task = activeTasks[i]
                 val notificationId = TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + task.id
-                val notification = TodoNotificationHelper.buildTaskNotification(this, task)
+                val notification = TodoNotificationHelper.buildTaskNotification(
+                    this,
+                    task,
+                    whenTimestamp = baseTime - i * 1000L
+                )
                 try {
                     notificationManager.notify(notificationId, notification)
                 } catch (e: SecurityException) {
                     e.printStackTrace()
                 }
+            }
+
+            // Top task in app UI (activeTasks[0]) is set as startForeground (posted last with newest timestamp)
+            val firstTask = activeTasks[0]
+            val firstNotificationId = TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + firstTask.id
+            val firstNotification = TodoNotificationHelper.buildTaskNotification(
+                this,
+                firstTask,
+                whenTimestamp = baseTime
+            )
+
+            try {
+                startForeground(firstNotificationId, firstNotification)
+            } catch (e: SecurityException) {
+                e.printStackTrace()
             }
         }
     }

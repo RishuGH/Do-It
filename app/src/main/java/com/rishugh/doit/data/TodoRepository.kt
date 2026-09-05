@@ -29,7 +29,7 @@ object TodoRepository {
             title = title.trim(),
             isCompleted = false
         )
-        _tasks.update { listOf(newItem) + it }
+        _tasks.update { it + newItem }
     }
 
     fun addTaskAtTop(title: String) {
@@ -58,5 +58,12 @@ object TodoRepository {
 
     fun deleteTask(id: Int) {
         _tasks.update { list -> list.filter { it.id != id } }
+    }
+
+    fun editTask(id: Int, newTitle: String) {
+        if (newTitle.isBlank()) return
+        _tasks.update { list ->
+            list.map { if (it.id == id) it.copy(title = newTitle.trim()) else it }
+        }
     }
 }
