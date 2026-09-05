@@ -16,18 +16,19 @@ import com.rishugh.doit.receiver.TodoActionReceiver
 
 object TodoNotificationHelper {
     const val CHANNEL_ID = "todo_channel_id"
-    const val NOTIFICATION_ID = 1001
+    const val TASK_NOTIFICATION_BASE_ID = 2000
 
     const val EXTRA_TASK_ID = "extra_task_id"
     const val KEY_TEXT_REPLY = "key_text_reply"
 
     const val ACTION_COMPLETE = "com.rishugh.doit.ACTION_COMPLETE"
-    const val ACTION_ADD = "com.rishugh.doit.ACTION_ADD"
+    const val ACTION_DELETE = "com.rishugh.doit.ACTION_DELETE"
+    const val ACTION_ADD_BELOW = "com.rishugh.doit.ACTION_ADD_BELOW"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "To-Do List"
-            val descriptionText = "Shows active to-do tasks in notification"
+            val name = "To-Do List Tasks"
+            val descriptionText = "Individual notifications for each to-do task"
             val importance = NotificationManager.IMPORTANCE_LOW
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
@@ -40,93 +41,112 @@ object TodoNotificationHelper {
 
     fun showTodoNotification(context: Context, tasks: List<Task>) {
         createNotificationChannel(context)
+        val notificationManager = NotificationManagerCompat.from(context)
 
         val activeTasks = tasks.filter { !it.isCompleted }
-        val completedCount = tasks.count { it.isCompleted }
-        val totalCount = tasks.size
+        val completedTasks = tasks.filter { it.isCompleted }
 
-        val contentIntent = Intent(context, MainActivity::class.java).let { intent ->
-            PendingIntent.getActivity(
-                context, 0, intent,
+        // 1. Cancel notifications for completed or removed tasks
+        for (task in completedTasks) {
+            try {
+                notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + task.id)
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
+        // 2. Post a separate notification card for each active task
+        for (task in activeTasks) {
+            val notificationId = TASK_NOTIFICATION_BASE_ID + task.id
+
+            // Tapping notification body opens the app to this task
+            val contentIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra(EXTRA_TASK_ID, task.id)
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                context, notificationId, contentIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-        }
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_menu_agenda)
-            .setContentTitle("To-Do List ($completedCount/$totalCount done)")
-            .setContentText(if (activeTasks.isEmpty()) "All tasks completed! 🎉" else "${activeTasks.size} tasks remaining")
-            .setContentIntent(contentIntent)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setAutoCancel(false)
+            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_menu_agenda)
+                .setContentTitle(task.title)
+                .setContentText("Tap actions below to complete, delete, or add task below")
+                .setContentIntent(contentPendingIntent)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setAutoCancel(false)
 
-        val inboxStyle = NotificationCompat.InboxStyle()
-        inboxStyle.setBigContentTitle("To-Do List ($completedCount/$totalCount done)")
-        
-        if (activeTasks.isEmpty()) {
-            inboxStyle.addLine("No pending tasks! Add one below.")
-        } else {
-            for (task in activeTasks.take(6)) {
-                inboxStyle.addLine("• ${task.title}")
-            }
-            if (activeTasks.size > 6) {
-                inboxStyle.addLine("... and ${activeTasks.size - 6} more")
-            }
-        }
-        builder.setStyle(inboxStyle)
-
-        // Action to complete top pending task
-        if (activeTasks.isNotEmpty()) {
-            val topTask = activeTasks.first()
+            // Action 1: Done
             val completeIntent = Intent(context, TodoActionReceiver::class.java).apply {
                 action = ACTION_COMPLETE
-                putExtra(EXTRA_TASK_ID, topTask.id)
+                putExtra(EXTRA_TASK_ID, task.id)
             }
             val completePendingIntent = PendingIntent.getBroadcast(
-                context, topTask.id, completeIntent,
+                context, notificationId * 10 + 1, completeIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val actionText = if (topTask.title.length > 15) topTask.title.take(15) + "..." else topTask.title
             builder.addAction(
                 R.drawable.ic_menu_save,
-                "Done: $actionText",
+                "✓ Done",
                 completePendingIntent
             )
-        }
 
-        // Action to add task via Direct Reply (RemoteInput)
-        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
-            .setLabel("Type new task...")
-            .build()
+            // Action 2: Delete
+            val deleteIntent = Intent(context, TodoActionReceiver::class.java).apply {
+                action = ACTION_DELETE
+                putExtra(EXTRA_TASK_ID, task.id)
+            }
+            val deletePendingIntent = PendingIntent.getBroadcast(
+                context, notificationId * 10 + 2, deleteIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
+                R.drawable.ic_menu_delete,
+                "🗑 Delete",
+                deletePendingIntent
+            )
 
-        val replyIntent = Intent(context, TodoActionReceiver::class.java).apply {
-            action = ACTION_ADD
-        }
-        val replyPendingIntent = PendingIntent.getBroadcast(
-            context, 0, replyIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-        )
+            // Action 3: Add Task Below via RemoteInput
+            val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
+                .setLabel("Add task below...")
+                .build()
 
-        val addAction = NotificationCompat.Action.Builder(
-            R.drawable.ic_input_add,
-            "Add Task",
-            replyPendingIntent
-        )
-            .addRemoteInput(remoteInput)
-            .setAllowGeneratedReplies(true)
-            .build()
+            val addIntent = Intent(context, TodoActionReceiver::class.java).apply {
+                action = ACTION_ADD_BELOW
+                putExtra(EXTRA_TASK_ID, task.id)
+            }
+            val addPendingIntent = PendingIntent.getBroadcast(
+                context, notificationId * 10 + 3, addIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            )
 
-        builder.addAction(addAction)
+            val addAction = NotificationCompat.Action.Builder(
+                R.drawable.ic_input_add,
+                "+ Add",
+                addPendingIntent
+            )
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+                .build()
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        } catch (e: SecurityException) {
-            e.printStackTrace()
+            builder.addAction(addAction)
+
+            try {
+                notificationManager.notify(notificationId, builder.build())
+            } catch (e: SecurityException) {
+                e.printStackTrace()
+            }
         }
     }
 
     fun cancelNotification(context: Context) {
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+        val notificationManager = NotificationManagerCompat.from(context)
+        for (i in 0..100) {
+            try {
+                notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + i)
+            } catch (e: Exception) {
+            }
+        }
     }
 }
