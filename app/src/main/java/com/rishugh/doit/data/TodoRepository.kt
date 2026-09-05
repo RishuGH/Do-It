@@ -36,6 +36,10 @@ object TodoRepository {
         addTask(title)
     }
 
+    fun updateTasks(newTasks: List<Task>) {
+        _tasks.update { newTasks }
+    }
+
     fun reorderTasks(fromIndex: Int, toIndex: Int) {
         _tasks.update { list ->
             if (fromIndex !in list.indices || toIndex !in list.indices) return@update list

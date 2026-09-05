@@ -27,6 +27,11 @@ class TodoViewModel : ViewModel() {
         showNotification(context)
     }
 
+    fun updateTasks(newTasks: List<Task>, context: Context) {
+        TodoRepository.updateTasks(newTasks)
+        showNotification(context)
+    }
+
     fun reorderTasks(fromIndex: Int, toIndex: Int, context: Context) {
         TodoRepository.reorderTasks(fromIndex, toIndex)
         showNotification(context)

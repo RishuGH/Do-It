@@ -12,15 +12,29 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.cardview.widget.CardView
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.rishugh.doit.data.Task
 
 class TaskAdapter(
     private val onToggleTask: (Task) -> Unit,
     private val onDeleteTask: (Task) -> Unit,
-    private val onReorderTasks: (fromIndex: Int, toIndex: Int) -> Unit
-) : ListAdapter<Task, TaskAdapter.TaskViewHolder>(TaskDiffCallback()) {
+    private val onReorderFinished: (List<Task>) -> Unit
+) : RecyclerView.Adapter<TaskAdapter.TaskViewHolder>() {
+
+    private val items = mutableListOf<Task>()
+    var isDragging = false
+        private set
+
+    fun submitList(newTasks: List<Task>) {
+        if (isDragging) return
+        val diffCallback = TaskDiffCallback(items, newTasks)
+        val diffResult = DiffUtil.calculateDiff(diffCallback)
+        items.clear()
+        items.addAll(newTasks)
+        diffResult.dispatchUpdatesTo(this)
+    }
+
+    override fun getItemCount(): Int = items.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TaskViewHolder {
         val context = parent.context
@@ -76,7 +90,7 @@ class TaskAdapter(
     }
 
     override fun onBindViewHolder(holder: TaskViewHolder, position: Int) {
-        val task = getItem(position)
+        val task = items[position]
         holder.titleView.text = task.title
 
         if (task.isCompleted) {
@@ -99,11 +113,23 @@ class TaskAdapter(
     }
 
     fun onItemMove(fromPosition: Int, toPosition: Int) {
-        val current = currentList.toMutableList()
-        val item = current.removeAt(fromPosition)
-        current.add(toPosition, item)
-        submitList(current)
-        onReorderTasks(fromPosition, toPosition)
+        if (fromPosition in items.indices && toPosition in items.indices) {
+            val item = items.removeAt(fromPosition)
+            items.add(toPosition, item)
+            notifyItemMoved(fromPosition, toPosition)
+        }
+    }
+
+    fun onDragStarted() {
+        isDragging = true
+    }
+
+    fun onDragEnded() {
+        if (isDragging) {
+            isDragging = false
+            notifyDataSetChanged()
+            onReorderFinished(items.toList())
+        }
     }
 
     class TaskViewHolder(
@@ -113,8 +139,15 @@ class TaskAdapter(
         val deleteBtn: ImageButton
     ) : RecyclerView.ViewHolder(cardView)
 
-    class TaskDiffCallback : DiffUtil.ItemCallback<Task>() {
-        override fun areItemsTheSame(oldItem: Task, newItem: Task) = oldItem.id == newItem.id
-        override fun areContentsTheSame(oldItem: Task, newItem: Task) = oldItem == newItem
+    class TaskDiffCallback(
+        private val oldList: List<Task>,
+        private val newList: List<Task>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = oldList.size
+        override fun getNewListSize(): Int = newList.size
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            oldList[oldItemPosition].id == newList[newItemPosition].id
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+            oldList[oldItemPosition] == newList[newItemPosition]
     }
 }

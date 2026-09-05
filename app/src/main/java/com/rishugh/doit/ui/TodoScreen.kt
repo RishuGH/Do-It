@@ -196,10 +196,9 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                         val adapter = TaskAdapter(
                             onToggleTask = { task -> viewModel.toggleTask(task.id, ctx) },
                             onDeleteTask = { task -> viewModel.deleteTask(task.id, ctx) },
-                            onReorderTasks = { fromIndex, toIndex ->
-                                val actualFrom = tasks.size - 1 - fromIndex
-                                val actualTo = tasks.size - 1 - toIndex
-                                viewModel.reorderTasks(actualFrom, actualTo, ctx)
+                            onReorderFinished = { reorderedDisplayTasks ->
+                                val newTasks = reorderedDisplayTasks.reversed()
+                                viewModel.updateTasks(newTasks, ctx)
                             }
                         )
                         recyclerView.adapter = adapter
@@ -228,6 +227,7 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                             ) {
                                 super.onSelectedChanged(viewHolder, actionState)
                                 if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                                    adapter.onDragStarted()
                                     viewHolder?.itemView?.apply {
                                         animate().scaleX(1.05f).scaleY(1.05f).alpha(0.85f).setDuration(150).start()
                                         elevation = 16f
@@ -244,6 +244,7 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                                     animate().scaleX(1.0f).scaleY(1.0f).alpha(1.0f).setDuration(150).start()
                                     elevation = 4f
                                 }
+                                adapter.onDragEnded()
                             }
                         })
 

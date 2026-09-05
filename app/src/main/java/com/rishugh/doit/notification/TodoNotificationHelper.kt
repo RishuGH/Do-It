@@ -94,7 +94,7 @@ object TodoNotificationHelper {
         )
         builder.addAction(
             R.drawable.ic_menu_delete,
-            "🗑 Del",
+            "🗑 Delete",
             deletePendingIntent
         )
 
@@ -131,15 +131,14 @@ object TodoNotificationHelper {
         createNotificationChannel(context)
         val notificationManager = NotificationManagerCompat.from(context)
 
-        val activeTasks = tasks.filter { !it.isCompleted }
-        val completedTasks = tasks.filter { it.isCompleted }
-
-        for (task in completedTasks) {
+        for (task in tasks) {
             try {
                 notificationManager.cancel(TASK_NOTIFICATION_BASE_ID + task.id)
             } catch (e: Exception) {
             }
         }
+
+        val activeTasks = tasks.filter { !it.isCompleted }
 
         for (task in activeTasks) {
             val notificationId = TASK_NOTIFICATION_BASE_ID + task.id

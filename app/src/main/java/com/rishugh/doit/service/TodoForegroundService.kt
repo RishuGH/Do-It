@@ -77,18 +77,13 @@ class TodoForegroundService : Service() {
         val activeTasks = tasks.filter { !it.isCompleted }
         val notificationManager = NotificationManagerCompat.from(this)
 
-        // Cancel all existing task notifications first so reordering updates cleanly
-        for (i in 0..100) {
-            try {
-                notificationManager.cancel(TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + i)
-            } catch (e: Exception) {}
-        }
-
-        val completedTasks = tasks.filter { it.isCompleted }
-        for (task in completedTasks) {
+        // Cancel existing task notifications so Android Notification Shade re-orders them cleanly
+        for (task in tasks) {
             try {
                 notificationManager.cancel(TodoNotificationHelper.TASK_NOTIFICATION_BASE_ID + task.id)
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         if (activeTasks.isEmpty()) {
