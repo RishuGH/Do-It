@@ -2,6 +2,8 @@ package com.rishugh.doit.ui
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
+import com.rishugh.doit.data.FirebaseSyncRepository
+import com.rishugh.doit.data.SyncStatus
 import com.rishugh.doit.data.Task
 import com.rishugh.doit.data.TodoRepository
 import com.rishugh.doit.notification.TodoNotificationHelper
@@ -11,6 +13,27 @@ import kotlinx.coroutines.flow.StateFlow
 class TodoViewModel : ViewModel() {
     val tasks: StateFlow<List<Task>> = TodoRepository.tasks
     val isPersistent: StateFlow<Boolean> = TodoRepository.isPersistent
+    val syncStatus: StateFlow<SyncStatus> = FirebaseSyncRepository.syncStatus
+
+    fun initializeCloudSync(context: Context) {
+        FirebaseSyncRepository.initialize(context) { remoteTasks ->
+            TodoRepository.updateTasksFromRemote(remoteTasks)
+            showNotification(context)
+        }
+    }
+
+    fun signInWithGoogle(
+        context: Context,
+        customWebClientId: String? = null,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FirebaseSyncRepository.signInWithGoogle(context, customWebClientId, onSuccess, onError)
+    }
+
+    fun signOut(context: Context) {
+        FirebaseSyncRepository.signOut(context)
+    }
 
     fun addTask(title: String, context: Context) {
         TodoRepository.addTask(title)

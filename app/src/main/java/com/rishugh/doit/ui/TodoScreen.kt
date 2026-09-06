@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
@@ -22,6 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.rishugh.doit.data.SyncStatus
 import com.rishugh.doit.data.Task
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,8 +33,71 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
     val context = LocalContext.current
     val tasks by viewModel.tasks.collectAsState()
     val isPersistent by viewModel.isPersistent.collectAsState()
+    val syncStatus by viewModel.syncStatus.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.initializeCloudSync(context)
+    }
+
     var newTaskTitle by remember { mutableStateOf("") }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
+    var showWebClientIdDialog by remember { mutableStateOf(false) }
+    var manualWebClientId by remember { mutableStateOf("") }
+
+    if (showWebClientIdDialog) {
+        AlertDialog(
+            onDismissRequest = { showWebClientIdDialog = false },
+            title = { Text("Google Sign-In Setup") },
+            text = {
+                Column {
+                    Text(
+                        "Your google-services.json does not contain Google OAuth credentials yet.\n\n" +
+                                "Steps to fix:\n" +
+                                "1. Open Firebase Console > Authentication > Sign-in method.\n" +
+                                "2. Enable 'Google' sign-in provider.\n" +
+                                "3. Re-download google-services.json and replace app/google-services.json.\n\n" +
+                                "Or paste your Web Client ID directly below:",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = manualWebClientId,
+                        onValueChange = { manualWebClientId = it },
+                        label = { Text("Web Client ID") },
+                        placeholder = { Text("xxxxxx.apps.googleusercontent.com") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (manualWebClientId.isNotBlank()) {
+                            showWebClientIdDialog = false
+                            viewModel.signInWithGoogle(
+                                context = context,
+                                customWebClientId = manualWebClientId.trim(),
+                                onSuccess = { user ->
+                                    Toast.makeText(context, "Signed in as $user!", Toast.LENGTH_LONG).show()
+                                },
+                                onError = { error ->
+                                    Toast.makeText(context, "Error: $error", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("Try Sign In")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showWebClientIdDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 
     taskToEdit?.let { task ->
         var editedTitle by remember(task) { mutableStateOf(task.title) }
@@ -96,6 +162,41 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("To-Do List in Notification") },
                 actions = {
+                    when (val status = syncStatus) {
+                        is SyncStatus.Connected -> {
+                            IconButton(onClick = {
+                                Toast.makeText(context, "Cloud Sync Active (User ID: ${status.userId.take(8)}...)", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDone,
+                                    contentDescription = "Cloud Sync Active",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        is SyncStatus.Connecting -> {
+                            IconButton(onClick = {
+                                Toast.makeText(context, "Connecting to Cloud...", Toast.LENGTH_SHORT).show()
+                            }) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
+                        else -> {
+                            IconButton(onClick = {
+                                Toast.makeText(context, "Cloud Sync: Add google-services.json to app/ folder from Firebase Console", Toast.LENGTH_LONG).show()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudOff,
+                                    contentDescription = "Cloud Sync Disabled",
+                                    tint = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+
                     IconButton(onClick = {
                         viewModel.showNotification(context)
                         Toast.makeText(context, "Notifications refreshed!", Toast.LENGTH_SHORT).show()
@@ -200,6 +301,56 @@ fun TodoScreen(viewModel: TodoViewModel = viewModel()) {
                             Toast.makeText(context, "Notification dismissed", Toast.LENGTH_SHORT).show()
                         }) {
                             Text("Dismiss")
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val currentSyncStatus = syncStatus
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    if (currentSyncStatus is SyncStatus.Connected && !currentSyncStatus.isAnonymous) {
+                        val userLabel = currentSyncStatus.email ?: currentSyncStatus.displayName ?: "Google Account"
+                        Text(
+                            text = "☁️ Synced with Google Account:\n$userLabel",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(onClick = {
+                            viewModel.signOut(context)
+                            Toast.makeText(context, "Signed out of Google Account", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Text("Sign Out")
+                        }
+                    } else {
+                        Text(
+                            text = "🌐 Multi-Device Cloud Sync:\nSign in with Google so your tasks automatically restore on any phone, tablet, or after reinstalling the app.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                viewModel.signInWithGoogle(
+                                    context = context,
+                                    onSuccess = { user ->
+                                        Toast.makeText(context, "Signed in as $user! Tasks synced across devices.", Toast.LENGTH_LONG).show()
+                                    },
+                                    onError = { error ->
+                                        if (error.contains("Missing Web Client ID", ignoreCase = true)) {
+                                            showWebClientIdDialog = true
+                                        } else {
+                                            Toast.makeText(context, "Google Sign-In: $error", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                )
+                            }
+                        ) {
+                            Text("Sign in with Google")
                         }
                     }
                 }

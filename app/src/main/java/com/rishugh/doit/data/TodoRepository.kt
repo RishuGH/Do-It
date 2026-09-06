@@ -30,6 +30,7 @@ object TodoRepository {
             isCompleted = false
         )
         _tasks.update { it + newItem }
+        FirebaseSyncRepository.uploadTasks(_tasks.value)
     }
 
     fun addTaskAtTop(title: String) {
@@ -37,6 +38,11 @@ object TodoRepository {
     }
 
     fun updateTasks(newTasks: List<Task>) {
+        _tasks.update { newTasks }
+        FirebaseSyncRepository.uploadTasks(newTasks)
+    }
+
+    fun updateTasksFromRemote(newTasks: List<Task>) {
         _tasks.update { newTasks }
     }
 
@@ -48,16 +54,20 @@ object TodoRepository {
             mutable.add(toIndex, item)
             mutable
         }
+        FirebaseSyncRepository.uploadTasks(_tasks.value)
     }
 
     fun toggleTask(id: Int) {
         _tasks.update { list ->
             list.map { if (it.id == id) it.copy(isCompleted = !it.isCompleted) else it }
         }
+        FirebaseSyncRepository.uploadTasks(_tasks.value)
     }
 
     fun deleteTask(id: Int) {
         _tasks.update { list -> list.filter { it.id != id } }
+        FirebaseSyncRepository.deleteTask(id)
+        FirebaseSyncRepository.uploadTasks(_tasks.value)
     }
 
     fun editTask(id: Int, newTitle: String) {
@@ -65,5 +75,7 @@ object TodoRepository {
         _tasks.update { list ->
             list.map { if (it.id == id) it.copy(title = newTitle.trim()) else it }
         }
+        FirebaseSyncRepository.uploadTasks(_tasks.value)
     }
 }
+
