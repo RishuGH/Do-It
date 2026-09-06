@@ -62,7 +62,6 @@ object TodoNotificationHelper {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_menu_agenda)
             .setContentTitle(task.title)
-            .setContentText("Tap actions below to complete, delete, or add task")
             .setContentIntent(contentPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
